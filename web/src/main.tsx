@@ -7,7 +7,7 @@ import { AnnotationPage } from './annotation'
 import { CasesPage } from './cases'
 import { DatasetLayout, DatasetsPage } from './datasets'
 import { DocumentsPage } from './documents'
-import { createMockClient } from './mock'
+import { createHttpClient } from './http'
 import { ChatProvider, SearchPage } from './search'
 import { ClientContext, Empty } from './ui'
 import './styles.css'
@@ -50,5 +50,5 @@ const router = createBrowserRouter([{
     { path: '*', element: <main className="container"><Empty title="页面不存在"><Link to="/datasets">返回数据集</Link></Empty></main> },
   ],
 }])
-const client = createMockClient({ storage: window.localStorage, delay: 230 })
+const client = createHttpClient()
 createRoot(document.getElementById('root')!).render(<ClientContext.Provider value={client}><RouterProvider router={router} /></ClientContext.Provider>)

@@ -1,34 +1,14 @@
-
+import { CaseDetailDialog } from './case-detail'
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Download, Plus, Search } from 'lucide-react'
-import { categories, messageOf, sideNames, statusNames } from './client'
+import { categories, messageOf, statusNames } from './client'
 import type { CaseDetail, Filters, Status } from './client'
 import { useDataset } from './datasets'
-import { Badge, Confirm, dateText, Empty, ErrorText, Excerpts, Modal, ResourceState, useClient, useResource } from './ui'
+import { Badge, Confirm, dateText, Empty, ErrorText, ResourceState, useClient, useResource } from './ui'
 
 const fields = [['testObject', '测试对象'], ['interfaceType', '接口类型'], ['scenario', '场景']] as const
 const pageSize = 20
-
-function Detail({ id, caseId, close }: { id: string; caseId: string; close: () => void }) {
-  const client = useClient()
-  const state = useResource(() => client.getCase(id, caseId), id + ':' + caseId)
-  const item = state.data
-  return <Modal wide title={item?.title || '案例详情'} close={close}>
-    {item ? <>
-      <Badge status={item.status} />
-      {item.status === 'published' && !item.valid && <p className="notice">引用已失效，当前案例无法检索。</p>}
-      <dl className="case-meta">
-        {[[item.testObject, '测试对象'], [item.categories.join('、'), '测试类别'], [item.interfaceType, '接口类型'],
-          [item.scenario, '场景'], [item.keywords, '关键词'], [item.conditions, '适用条件'],
-          [item.note, '标注说明'], [dateText(item.updatedAt), '更新时间']].map(([value, label]) =>
-          <div key={label}><dt>{label}</dt><dd>{value || '—'}</dd></div>)}
-      </dl>
-      <div className="split"><section><h3>{sideNames.source} · {item.sourceSlices.length}</h3><Excerpts slices={item.sourceSlices} /></section>
-        <section><h3>{sideNames.test_requirement} · {item.testRequirementSlices.length}</h3><Excerpts slices={item.testRequirementSlices} /></section></div>
-    </> : <ResourceState state={state} />}
-  </Modal>
-}
 
 export function CasesPage() {
   const client = useClient()
@@ -107,7 +87,7 @@ export function CasesPage() {
             <button disabled={page >= totalPages} onClick={() => setFilter({ ...filter, page: page + 1 })}>下一页</button></div></footer>
       </> : <ResourceState state={state} />}
     </section>
-    {caseId && <Detail key={caseId} id={dataset.id} caseId={caseId} close={() => setParams({}, { replace: true })} />}
+    {caseId && <CaseDetailDialog key={caseId} id={dataset.id} caseId={caseId} close={() => setParams({}, { replace: true })} />}
     {withdraw && <Confirm title="停用案例" label="确认停用" close={() => setWithdraw(undefined)} confirm={async () => {
       try { await client.withdrawCase(dataset.id, withdraw.id, withdraw.version) } finally { state.reload() }
     }}><p>停用「{withdraw.title}」后，该案例将退出新查询的结果。</p></Confirm>}

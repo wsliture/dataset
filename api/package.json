@@ -1,0 +1,35 @@
+{
+  "name": "matrix-dataset-api",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/server.js",
+    "migrate": "tsx src/migrate.ts",
+    "test": "tsx --test --test-concurrency=1 test/*.test.ts",
+    "reindex": "tsx src/reindex.ts"
+  },
+  "dependencies": {
+    "@fastify/multipart": "^10.1.9",
+    "@fastify/static": "^10.1.12",
+    "fastify": "^5.12.8",
+    "mammoth": "1.11.0",
+    "parse5": "^8.1.1",
+    "pg": "^8.23.1",
+    "yauzl": "^3.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/pg": "^8.23.1",
+    "@types/yauzl": "^3.4.0",
+    "playwright": "^1.65.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

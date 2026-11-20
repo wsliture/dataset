@@ -74,6 +74,15 @@ input[type=checkbox] { accent-color: var(--blue); width: 16px; height: 16px; fle
 .search-field svg { flex: none; }
 .search-field input { border: 0; }
 .table-wrap { overflow-x: auto; }
+.original-table { min-width: 0; border: 1px solid var(--border); border-radius: 8px; padding: 9px; background: white; }
+.original-table > .table-wrap { margin-top: 8px; }
+.original-table-grid { width: 100%; min-width: 0; border-collapse: collapse; }
+.original-table-grid td, .original-table-grid th { border: 1px solid var(--border); padding: 6px 8px; vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; }
+.original-table-grid td:not(.table-row-controls) { min-width: 5rem; }
+.original-table-grid td.table-row-controls { width: 1%; white-space: nowrap; }
+.original-table-grid .table-row-match > td, .original-table-grid .table-row-match > th { background: #fff3c4; }
+.table-revision { margin-top: 8px; }
+.table-revision p { white-space: pre-wrap; overflow-wrap: anywhere; }
 table { width: 100%; min-width: 780px; border-collapse: collapse; text-align: left; font-size: .875rem; }
 th, td { padding: 14px 16px; border-top: 1px solid var(--border); }
 th { color: #485974; background: #f7f9fc; font-weight: 650; white-space: nowrap; }
@@ -142,6 +151,8 @@ td small { display: block; color: var(--muted); margin-top: .3rem; font-size: .8
 .selections summary span { margin-left: 8px; color: var(--muted); font-size: .875rem; }
 .selections[open] .split { margin-top: 14px; }
 .selection-row { display: flex; align-items: start; justify-content: space-between; gap: 8px; margin-bottom: 7px; border-bottom: 1px solid var(--border); padding-bottom: 7px; }
+.selection-row > div, .selections .split > section, .dialog-body .split > section { min-width: 0; }
+.selection-row > button { flex-shrink: 0; white-space: nowrap; }
 .case-form h3 { margin-bottom: 13px; }
 fieldset { border: 0; margin: 12px 0 0; padding: 0; min-width: 0; }
 legend { font-size: .875rem; font-weight: 650; margin-bottom: 6px; }

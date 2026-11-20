@@ -13,11 +13,22 @@ export interface DatasetSummary extends Dataset {
   searchable: number
 }
 export interface Excerpt {
+  version?: number
+  sharedContext?: string[]
   sliceId: string; text: string; documentId: string; documentName: string; sectionPath: string[]; sourceRef: string
 }
+export type TableContent = string | { kind: 'break' } | { kind: 'table'; rows: TableRow[] }
+export interface TableRow {
+  cells: { rowSpan: number; colSpan: number; header: boolean; content: TableContent[] }[]
+  sliceId?: string
+  sharedContext?: string[]
+}
+export interface TableView { sliceId: string; title: string; rows: TableRow[] }
 export interface Slice extends Excerpt {
   kind: 'paragraph' | 'clause' | 'table' | 'table_row'
+  sectionId: string
   parentSliceId?: string
+  rowOrder?: number
   version: number
 }
 export interface Doc {
@@ -42,12 +53,13 @@ export interface SearchResult {
   matchedSourceSlices: Excerpt[]; testRequirementSlices: Excerpt[]
 }
 export interface DatasetClient {
+  listTables(id: string, documentId: string): Promise<TableView[]>
   listDatasets(): Promise<DatasetSummary[]>
   getDataset(id: string): Promise<Dataset>
   saveDataset(input: DatasetInput, id?: string): Promise<Dataset>
   deleteDataset(id: string): Promise<void>
   listDocuments(id: string): Promise<Doc[]>
-  importDocument(id: string, type: Side, file: Pick<File, 'name' | 'size'>, onParsing?: () => void): Promise<Doc>
+  importDocument(id: string, type: Side, file: File, onParsing?: () => void): Promise<Doc>
   deleteDocument(id: string, documentId: string): Promise<void>
   updateSlice(id: string, documentId: string, sliceId: string, text: string, version: number): Promise<Doc>
   listCases(id: string, filters: Filters): Promise<{ items: CaseDetail[]; total: number }>

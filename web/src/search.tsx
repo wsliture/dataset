@@ -1,11 +1,12 @@
 
 import { useState, useRef, createContext, useContext } from 'react'
 import type { ReactNode } from 'react'
-import { Link } from 'react-router-dom'
-import { ArrowUp, Search, MessageSquareText, ExternalLink } from 'lucide-react'
+import { ArrowUp, MessageSquareText } from 'lucide-react'
+import { CaseDetailDialog } from './case-detail'
 import type { SearchResult } from './client'
 import { messageOf, stripResults } from './client'
-import { Empty, ErrorText, Excerpts, useClient } from './ui'
+import { TableExcerpts, useTableViews } from './original-table'
+import { Empty, ErrorText, useClient } from './ui'
 
 type Turn = { id: string; query: string; results?: SearchResult[]; error?: string; removed?: boolean }
 function useSearchSession() {
@@ -59,35 +60,40 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
 export function SearchPage() {
   const chat = useChat()
+  const [detail, setDetail] = useState<SearchResult>()
   return <main className="container search-page">
     <div className="page-head"><div><h1>案例检索</h1><p>输入源需求、设计描述或接口标识，查找已确认的历史配对。</p></div></div>
     <section className="panel chat">
       <div className="chat-log" aria-live="polite" aria-busy={chat.busy}>
         {!chat.turns.length && <div className="chat-start"><span className="empty-icon"><MessageSquareText size={26} /></span>
-          <h2>查找相似历史案例</h2><p>从案例中核对历史源文、测试需求及其出处。</p>
-          <div className="chips">{['SJA1000', '退出复位模式', '总线关闭'].map(query =>
-            <button key={query} onClick={() => chat.send(query)}><Search size={14} />{query}</button>)}</div></div>}
+          <h2>查找相似历史案例</h2><p>从案例中核对历史源文、测试需求及其出处。</p></div>}
         {chat.turns.map(turn => <section className="turn" key={turn.id}>
           <p className="bubble">{turn.query}</p>
           {turn.error ? <div className="turn-feedback"><ErrorText error={turn.error} /><button disabled={chat.busy} onClick={() => chat.send(turn.query, turn.id)}>重试查询</button></div>
             : !turn.results ? <p className="muted" role="status">正在查询…</p>
             : !turn.results.length ? <Empty title={turn.removed ? '相关数据集已删除' : '没有匹配的案例'} />
             : <><p className="result-count">{turn.results.length} 条匹配案例</p>{turn.results.map(item =>
-              <article className="result-card" key={item.caseId}>
-                <header><div><span className="muted">{item.datasetName}</span><h3>{item.caseTitle}</h3></div>
-                  <Link className="button" to={'/datasets/' + item.datasetId + '/cases?caseId=' + item.caseId}>查看案例 <ExternalLink size={14} /></Link></header>
-                <div className="split"><section><h4>命中源切片</h4><Excerpts slices={item.matchedSourceSlices} /></section>
-                  <section><h4>关联测试需求</h4><Excerpts slices={item.testRequirementSlices} /></section></div>
-              </article>)}</>}
+              <SearchResultCard key={item.caseId} item={item} open={() => setDetail(item)} />)}</>}
         </section>)}
       </div>
       <form className="composer" onSubmit={event => { event.preventDefault(); void chat.send() }}>
-        <div className="composer-row"><textarea aria-label="查询内容" placeholder="例如：SJA1000 上电后如何退出复位模式？"
+        <div className="composer-row"><textarea aria-label="查询内容" placeholder="输入源需求、设计描述或接口标识"
           value={chat.input} disabled={chat.busy} rows={2} onChange={event => chat.setInput(event.target.value)}
           onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void chat.send() } }} />
           <button className="primary" type="submit" disabled={chat.busy}><ArrowUp size={17} />{chat.busy ? '查询中' : '发送'}</button></div>
         <ErrorText error={chat.error} />
       </form>
     </section>
+    {detail && <CaseDetailDialog id={detail.datasetId} caseId={detail.caseId} close={() => setDetail(undefined)} />}
   </main>
+}
+
+function SearchResultCard({ item, open }: { item: SearchResult; open: () => void }) {
+  const views = useTableViews(item.datasetId, [...item.matchedSourceSlices, ...item.testRequirementSlices])
+  return <article className="result-card">
+    <header><div><span className="muted">{item.datasetName}</span><h3>{item.caseTitle}</h3></div>
+      <button onClick={open}>查看案例详情</button></header>
+    <div className="split"><section><h4>命中源切片</h4><TableExcerpts slices={item.matchedSourceSlices} views={views} /></section>
+      <section><h4>关联测试需求</h4><TableExcerpts slices={item.testRequirementSlices} views={views} /></section></div>
+  </article>
 }

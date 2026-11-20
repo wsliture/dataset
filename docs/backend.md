@@ -4,7 +4,7 @@
 
 在 `dataset/api/` 建立独立 npm 项目，使用 Node.js 24、TypeScript ESM、Fastify 和 `pg`。服务负责 DOCX 导入、切片编辑、案例发布与撤回、筛选和导出，以及通过 PostgreSQL/pgvector 和内网 BGE-M3 执行混合检索。部署时与 Web 同源，前端静态资源支持 SPA 路由回退，`/api/` 下的请求始终走 API 路由及其错误处理。Phase 2 后续通过只读检索接口接入。组织级权限和自动生成测试需求留待后续版本。
 
-业务范围见 [PRD](prd.md)，解析和检索依据 [技术规格](tech.md)，单文档删除、表格行和导出依据 [前端规格](frontend.md)。接口与 [DatasetClient](../web/src/client.ts) 对齐。当前 [前端入口](../web/src/main.tsx) 直接实例化模拟客户端，联调时实现 HTTP 适配器，生产入口使用同源 API，开发与测试可显式启用模拟客户端。当前页面在会话内保存聊天记录，并在数据集删除后清除已展示和在途响应中的对应结果。
+业务范围见 [PRD](prd.md)，解析和检索依据 [技术规格](tech.md)，单文档删除、表格行和导出依据 [前端规格](frontend.md)。接口与 [DatasetClient](../web/src/client.ts) 对齐。[前端入口](../web/src/main.tsx) 通过 HTTP 适配器访问同源 API，开发环境由 Vite 转发。当前页面在会话内保存聊天记录，并在数据集删除后清除已展示和在途响应中的对应结果。
 
 ## 2. HTTP 契约
 
@@ -20,6 +20,7 @@
 | GET D/documents | 无 | 200，`Doc[]` | `listDocuments`，文档管理与标注工作台 |
 | POST D/documents | multipart 单文件，`type` 和 `file` | 201，解析后的 `Doc` | `importDocument`，文档上传 |
 | GET D/documents/:documentId | 无 | 200，`Doc` | 独立文档详情，当前预览使用列表中的 `Doc` |
+| GET D/documents/:documentId/tables | 无 | 200，原表视图数组 | `listTables`，工作台与文档预览 |
 | DELETE D/documents/:documentId | 无 | 204 | `deleteDocument`，文档管理 |
 | PATCH D/documents/:documentId/slices/:sliceId | `{ text, version }` | 200，刷新后的完整 `Doc` | `updateSlice`，文档预览 |
 | GET D/cases | 筛选和分页参数 | 200，`{ items: CaseDetail[], total: number }` | `listCases`，案例列表 |
@@ -34,7 +35,7 @@
 ### 响应字段与筛选
 
 - `Dataset` 返回 `id, name, note, status, updatedAt`。名称去除首尾空白后必填，备注省略时保存空字符串。`DatasetSummary` 另含 `documents: { source, test_requirement }`、`cases: { draft, published, withdrawn }` 及 `searchable`，各计数始终为数字。`searchable` 使用第 5 节的案例资格，归档计为 0。列表按 `updatedAt` 降序、`id` 升序。首页名称筛选由前端执行。
-- `Doc` 返回 `id, name, datasetId, type, slices, warnings, importedAt`。`type` 为 `source` 或 `test_requirement`，`warnings` 为字符串数组。切片对象包含 `Excerpt` 字段及 `kind, version`，行切片另返回 `parentSliceId` 和从 1 开始的 `rowOrder`。列表和详情均按原文块顺序返回切片，行紧随整表并按行顺序排列。`Excerpt` 包含 `sliceId, text, documentId, documentName, sectionPath, sourceRef`，其中 `sectionPath` 为标题数组，`sourceRef` 为可展示定位。
+- `Doc` 返回 `id, name, datasetId, type, slices, warnings, importedAt`。`type` 为 `source` 或 `test_requirement`，`warnings` 为字符串数组。切片对象包含 `Excerpt` 字段及 `sectionId, kind, version`，行切片另返回 `parentSliceId` 和从 1 开始的 `rowOrder`。列表和详情均按原文块顺序返回切片，行紧随整表并按行顺序排列。`Excerpt` 包含 `sliceId, text, documentId, documentName, sectionPath, sourceRef`，其中 `sectionPath` 为标题数组，`sourceRef` 为可展示定位。
 - `CaseInput` 包含字符串 `title, testObject, interfaceType, scenario, keywords, conditions, note`，以及字符串数组 `categories, sourceSliceIds, testRequirementSliceIds`。草稿可使用空字符串和空数组。标题和测试对象去除首尾空白，类别使用前端枚举的原始值。详情返回上述全部字段以及 `id, datasetId, version, status, updatedAt, sourceSlices, testRequirementSlices, valid`。摘录保留各侧选区顺序。`valid` 表示满足发布内容和引用校验，独立于生命周期状态。
 - `status` 和 `category` 分别精确匹配状态和数组成员。`q` 在标题及当前双侧切片正文做字面子串匹配，`testObject, interfaceType, scenario` 在对应字段做字面子串匹配。子串双方统一 NFKC、去首尾空白并转小写。空筛选视为省略，不同筛选条件取交集。`updatedSince` 接收含时区的 ISO 时间，下界包含该时刻。分页参数为正整数，默认 `page=1`、`pageSize=20`，每页最多 100 条，超出返回 400。列表按案例更新时间降序、ID 升序，`total` 为分页前数量，计数和列表使用同一快照。
 - 导出注册为静态路径，忽略 `page` 和 `pageSize`。使用与列表一致的筛选和排序，另外要求数据集使用中、案例已发布且 `valid`。每行是同一读取快照中的 `CaseDetail`，把 `id` 改为 `caseId` 并增加 `schemaVersion: 1`，末尾换行。用 `application/x-ndjson; charset=utf-8` 返回，空结果返回 200 和空正文。HTTP 适配器以文本读取，由页面处理空结果和下载。

@@ -76,7 +76,7 @@ export function Provenance({ slice }: { slice: Excerpt }) {
 }
 export function Excerpts({ slices }: { slices: Excerpt[] }) {
   return slices.length ? <div className="excerpts">{slices.map(slice => <article key={slice.sliceId}>
-    <p>{slice.text}</p><Provenance slice={slice} />
+    <p>{slice.text}</p>{slice.sharedContext?.map(text => <p key={text}>共享条件：{text}</p>)}<Provenance slice={slice} />
   </article>)}</div> : <p className="muted">暂无切片</p>
 }
 export const dateText = (value: string) => new Intl.DateTimeFormat('sv-SE').format(new Date(value))

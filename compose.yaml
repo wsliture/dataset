@@ -1,0 +1,26 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: dataset
+      POSTGRES_USER: dataset
+      POSTGRES_PASSWORD: dataset-local
+    ports:
+      - "127.0.0.1:55439:5432"
+    volumes:
+      - dataset-db:/var/lib/postgresql/data
+  embedding:
+    image: michaelf34/infinity:0.0.79-cpu
+    command: ["v2", "--model-id", "BAAI/bge-m3", "--revision", "5617a9f61b028005a4858fdac845db406aefb181", "--engine", "torch", "--device", "cpu", "--url-prefix", "/v1", "--port", "7997", "--no-trust-remote-code", "--no-model-warmup"]
+    environment:
+      DO_NOT_TRACK: "1"
+      HF_HOME: /app/.cache
+      HF_HUB_DISABLE_XET: "1"
+      HF_HUB_OFFLINE: "${DATASET_HF_OFFLINE:-0}"
+    ports:
+      - "127.0.0.1:57997:7997"
+    volumes:
+      - embedding-cache:/app/.cache
+volumes:
+  dataset-db:
+  embedding-cache:

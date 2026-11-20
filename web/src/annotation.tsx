@@ -3,22 +3,25 @@ import { useEffect, useState } from 'react'
 import { useBlocker, useSearchParams } from 'react-router-dom'
 import { Check, Eye, FileText, Save } from 'lucide-react'
 import { caseInput, categories, emptyCase, messageOf, publicationError, sideNames, toggleSlice } from './client'
-import type { CaseDetail, CaseInput, Doc, Side, Slice } from './client'
+import type { CaseDetail, CaseInput, Doc, Side, Slice, TableView } from './client'
 import { useDataset } from './datasets'
 import { groupSlices } from './documents'
-import { Badge, Empty, ErrorText, Excerpts, Modal, Provenance, ResourceState, useClient, useResource } from './ui'
+import { OriginalTable, TableExcerpt, tableIndex, useTableViews } from './original-table'
+import { Badge, Empty, ErrorText, Modal, Provenance, ResourceState, useClient, useResource } from './ui'
 
 const sides = ['source', 'test_requirement'] as const
 const fieldBySide = { source: 'sourceSliceIds', test_requirement: 'testRequirementSliceIds' } as const
 const fields = [['title', '案例标题'], ['testObject', '测试对象'], ['interfaceType', '接口类型'], ['scenario', '场景'],
   ['keywords', '关键词'], ['conditions', '适用条件'], ['note', '标注说明']] as const
 
-export function PairPreview({ input, slices }: { input: CaseInput; slices: [Slice[], Slice[]] }) {
+function PairPreview({ input, slices, views }: { input: CaseInput; slices: [Slice[], Slice[]]; views: Map<string, TableView> }) {
   return <>
     <dl className="case-meta">{fields.map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{input[key] || '—'}</dd></div>)}
       <div><dt>测试类别</dt><dd>{input.categories.join('、') || '—'}</dd></div></dl>
     <div className="split">{sides.map((side, index) => <section key={side}><h3>{sideNames[side]} · {slices[index].length}</h3>
-      <Excerpts slices={slices[index]} /></section>)}</div>
+      <div className="excerpts">{slices[index].map(slice => <article key={slice.sliceId}>
+        <TableExcerpt slice={slice} views={views} />
+      </article>)}</div></section>)}</div>
   </>
 }
 
@@ -29,11 +32,21 @@ function SlicePane({ side, docs, ids, update, readOnly, visible, reload }: {
   const [section, setSection] = useState('')
   const [search, setSearch] = useState('')
   const doc = docs.find(item => item.id === docId) ?? docs[0]
+  const client = useClient()
+  const { id } = useDataset()
+  const tables = useResource(() => doc ? client.listTables(id, doc.id) : Promise.resolve([]),
+    id + ':' + (doc?.id ?? '') + ':' + (doc?.slices.map(slice => slice.version).join(',') ?? ''))
+  const views = tableIndex(tables.data)
   const sections = groupSlices(doc?.slices ?? [])
   const active = sections.has(section) ? section : sections.keys().next().value
   const query = search.trim().toLowerCase()
   const slices = query ? doc?.slices.filter(slice => slice.text.toLowerCase().includes(query)) ?? [] : sections.get(active ?? '') ?? []
   const independent = slices.filter(slice => !slice.parentSliceId)
+  const matches = new Set(query ? slices.map(slice => slice.sliceId) : [])
+  const visibleSlices = (query ? doc?.slices ?? [] : slices).filter(slice => {
+    if (slice.parentSliceId && views.has(slice.parentSliceId)) return false
+    return !query || matches.has(slice.sliceId) || (views.get(slice.sliceId)?.rows.some(row => row.sliceId && matches.has(row.sliceId)) ?? false)
+  })
   function selectSection() {
     const selected = independent.reduce((current, slice) => current.includes(slice.sliceId) ? current :
       toggleSlice(current, slice, doc?.slices ?? []), ids)
@@ -48,17 +61,20 @@ function SlicePane({ side, docs, ids, update, readOnly, visible, reload }: {
           {docs.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label>搜索正文<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索当前文档" /></label>
         <label>章节<select value={active} onChange={event => { setSection(event.target.value); setSearch('') }}>
-          {[...sections.keys()].map(path => <option key={path}>{path}</option>)}</select></label>
+          {[...sections].map(([id, items]) => <option key={id} value={id}>{items[0].sectionPath.join(' / ')} ({id})</option>)}</select></label>
       </div>
       <div className="pane-summary"><span>{query ? '搜索结果' : '当前章节'} · {slices.length} 个切片</span>
         {!query && <button disabled={readOnly || !independent.length} onClick={selectSection}>选择本节</button>}</div>
-      <div className="slice-list">{slices.length ? slices.map(slice => <label key={slice.sliceId}
+      <div className="slice-list">{visibleSlices.length ? visibleSlices.map(slice => {
+        const table = views.get(slice.sliceId)
+        return table ? <OriginalTable key={slice.sliceId} table={table} slices={doc.slices} selected={ids}
+          matches={matches} readOnly={readOnly} onSelect={item => update(toggleSlice(ids, item, doc.slices))} /> : <label key={slice.sliceId}
         className={'slice-option ' + (ids.includes(slice.sliceId) ? 'selected ' : '') + (slice.parentSliceId ? 'nested' : '')}>
         <input type="checkbox" checked={ids.includes(slice.sliceId)} disabled={readOnly}
           onChange={() => update(toggleSlice(ids, slice, doc.slices))} />
         <div><span className="muted">{({ paragraph: '段落', clause: '条款', table: '整表', table_row: '表格行' })[slice.kind]}</span>
           <p>{slice.text}</p><Provenance slice={slice} /></div>
-      </label>) : <Empty title="没有匹配切片" />}</div>
+      </label>}) : <Empty title="没有匹配切片" />}</div>
     </> : <Empty title="暂无可选文档">请先在文档管理中导入。</Empty>}
   </section>
 }
@@ -99,6 +115,7 @@ function Workspace({ initial, docs, reload, readOnly, datasetId }: {
     return value[fieldBySide[sideName]].flatMap(id => all.filter(slice => slice.sliceId === id))
   }) as [Slice[], Slice[]]
   const stale = resolved.some((list, index) => list.length !== value[fieldBySide[sides[index]]].length)
+  const selectedViews = useTableViews(datasetId, resolved.flat())
   function update<Key extends keyof CaseInput>(key: Key, input: CaseInput[Key]) {
     setValue(previous => ({ ...previous, [key]: input }))
     setFeedback('')
@@ -161,7 +178,7 @@ function Workspace({ initial, docs, reload, readOnly, datasetId }: {
       <div className="split">{sides.map((item, index) => <section key={item}><h3>{sideNames[item]}</h3>
         {value[fieldBySide[item]].map(id => {
           const slice = resolved[index].find(candidate => candidate.sliceId === id)
-          return <div className="selection-row" key={id}><div>{slice ? <><p>{slice.text}</p><Provenance slice={slice} /></> : <p className="error">切片已失效</p>}</div>
+          return <div className="selection-row" key={id}><div>{slice ? <TableExcerpt slice={slice} views={selectedViews} /> : <p className="error">切片已失效</p>}</div>
             {!readOnly && <button disabled={working} onClick={() => update(fieldBySide[item], value[fieldBySide[item]].filter(entry => entry !== id))}>移除</button>}</div>
         })}
         {!value[fieldBySide[item]].length && <p className="muted">尚未选择切片</p>}</section>)}</div>
@@ -185,7 +202,7 @@ function Workspace({ initial, docs, reload, readOnly, datasetId }: {
       {feedback && <p className="success" role="status">{feedback}</p>}
     </section>
     {modal && <Modal wide title={modal === 'publish' ? '确认案例配对' : '预览案例配对'} close={() => { if (!working) setModal(undefined) }}>
-      <PairPreview input={value} slices={resolved} />
+      <PairPreview input={value} slices={resolved} views={selectedViews} />
       {modal === 'publish' && <div className="confirmation">
         <ErrorText error={error} />
         {conflict && <button disabled={working} onClick={reconcile}>加载最新版本</button>}

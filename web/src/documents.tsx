@@ -4,6 +4,7 @@ import { FileText, Upload, Trash2, Pencil } from 'lucide-react'
 import { messageOf, sideNames } from './client'
 import type { Doc, Side, Slice } from './client'
 import { useDataset } from './datasets'
+import { OriginalTable, tableIndex } from './original-table'
 import { Confirm, dateText, Empty, ErrorText, Modal, Provenance, ResourceState, useClient, useResource } from './ui'
 
 type UploadItem = { id: string; file: File; side: Side; phase: 'uploading' | 'parsing' | 'done' | 'failed'; error?: string }
@@ -11,7 +12,7 @@ type UploadItem = { id: string; file: File; side: Side; phase: 'uploading' | 'pa
 export function groupSlices(slices: Slice[]) {
   const sections = new Map<string, Slice[]>()
   for (const slice of slices) {
-    const section = slice.sectionPath.join(' / ')
+    const section = slice.sectionId
     const group = sections.get(section)
     if (group) group.push(slice)
     else sections.set(section, [slice])
@@ -46,6 +47,9 @@ export function DocumentsPage() {
   const [preview, setPreview] = useState<Doc>()
   const [deleting, setDeleting] = useState<Doc>()
   const [editing, setEditing] = useState<Slice>()
+  const tables = useResource(() => preview ? client.listTables(dataset.id, preview.id) : Promise.resolve([]),
+    dataset.id + ':' + (preview?.id ?? ''))
+  const views = tableIndex(tables.data)
   const sourceFile = useRef<HTMLInputElement>(null)
   const testFile = useRef<HTMLInputElement>(null)
 
@@ -82,7 +86,7 @@ export function DocumentsPage() {
               }} /></>}
         </header>
         <div className="upload-status" aria-live="polite">{uploads.filter(item => item.side === side).map(item => <div className="upload-item" key={item.id}>
-          <strong>{item.file.name}</strong><span>{({ uploading: '上传中…', parsing: '模拟解析中…', done: '已导入', failed: '导入失败' })[item.phase]}</span>
+          <strong>{item.file.name}</strong><span>{({ uploading: '上传中…', parsing: '解析中…', done: '已导入', failed: '导入失败' })[item.phase]}</span>
           {item.phase === 'failed' && <><ErrorText error={item.error} /><button onClick={() => upload(item)}>重试导入</button>
             <button onClick={() => setUploads(previous => previous.filter(uploadItem => uploadItem.id !== item.id))}>清除</button></>}
         </div>)}</div>
@@ -96,14 +100,19 @@ export function DocumentsPage() {
     {preview && !editing && <Modal wide title={preview.name} close={() => setPreview(undefined)}>
       {preview.warnings.map(warning => <p className="notice" key={warning}>{warning}</p>)}
       {[...groupSlices(preview.slices)].map(([section, slices]) => <section className="document-section" key={section}>
-        <h3>{section}</h3><div className="excerpts">{slices.map(slice => <article key={slice.sliceId} className={slice.parentSliceId ? 'nested' : ''}>
+        <h3>{slices[0].sectionPath.join(' / ')}</h3><div className="excerpts">{slices.filter(slice =>
+          !slice.parentSliceId || !views.has(slice.parentSliceId)).map(slice => {
+          const table = views.get(slice.sliceId)
+          return table ? <OriginalTable key={slice.sliceId} table={table} slices={slices}
+            onEdit={readOnly ? undefined : setEditing} /> : <article key={slice.sliceId} className={slice.parentSliceId ? 'nested' : ''}>
           <div className="row spread"><Provenance slice={slice} />{!readOnly && slice.kind !== 'table' &&
             <button className="icon-button" aria-label={'编辑 ' + slice.sourceRef} onClick={() => setEditing(slice)}><Pencil size={15} /></button>}</div>
           <p>{slice.text}</p>
-        </article>)}</div></section>)}
+        </article>})}</div></section>)}
     </Modal>}
     {preview && editing && <EditSlice slice={editing} close={() => setEditing(undefined)} save={async text => {
       setPreview(await client.updateSlice(dataset.id, preview.id, editing.sliceId, text, editing.version))
+      tables.reload()
       state.reload()
     }} />}
     {deleting && <Confirm title="删除文档" close={() => setDeleting(undefined)} confirm={async () => {
