@@ -2,11 +2,12 @@
 import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createBrowserRouter, Link, matchPath, Navigate, NavLink, Outlet, RouterProvider, useLocation } from 'react-router-dom'
-import { Database, Layers3, Search } from 'lucide-react'
+import { Database, Layers3, Search, Settings } from 'lucide-react'
 import { AnnotationPage } from './annotation'
 import { CasesPage } from './cases'
 import { DatasetLayout, DatasetsPage } from './datasets'
 import { DocumentsPage } from './documents'
+import { EmbeddingSettingsPage } from './embedding-settings'
 import { createHttpClient } from './http'
 import { ChatProvider, SearchPage } from './search'
 import { ClientContext, Empty } from './ui'
@@ -29,6 +30,7 @@ function Layout() {
         <nav aria-label="主导航">
           <NavLink to={matchPath('/search', pathname) ? lastDatasetPage : '/datasets'}><Database size={16} />历史数据集</NavLink>
           <NavLink to="/search"><Search size={17} />案例检索</NavLink>
+          <NavLink to="/settings/embedding"><Settings size={17} />模型设置</NavLink>
         </nav>
       </div>
     </header>
@@ -47,6 +49,7 @@ const router = createBrowserRouter([{
       { path: 'cases', element: <CasesPage /> },
     ] },
     { path: 'search', element: <SearchPage /> },
+    { path: 'settings/embedding', element: <EmbeddingSettingsPage /> },
     { path: '*', element: <main className="container"><Empty title="页面不存在"><Link to="/datasets">返回数据集</Link></Empty></main> },
   ],
 }])

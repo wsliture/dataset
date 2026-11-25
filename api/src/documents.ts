@@ -7,7 +7,7 @@ import type { FastifyRequest } from 'fastify'
 import type { Pool, PoolClient } from 'pg'
 import type { Config } from './config.js'
 import { ApiError, conflict, invalid, missing, normalize, read, side, uuid, type Side } from './contract.js'
-import { transaction } from './db.js'
+import { checkEmbeddingRevision, transaction } from './db.js'
 import { parseDocx } from './docx.js'
 import { tokens, vectorLiteral } from './indexing.js'
 import { dataset, publicSlice, sliceFields, touch, type Database, type Slice } from './repository.js'
@@ -184,6 +184,7 @@ export async function updateSlice(pool: Pool, config: Config, embed: Embed, data
   return transaction(pool, async db => {
     await dataset(db, datasetId, 'write')
     const current = await prepareEdit(db, datasetId, documentId, sliceId, text, version, true)
+    await checkEmbeddingRevision(db, config.embeddingRevision)
     for (const slice of current.affected) {
       if (prepared.affected.find(row => row.sliceId === slice.sliceId)?.version !== slice.version) conflict()
       const vector = current.referenced.has(slice.sliceId) ? vectors.get(slice.sliceId) : undefined

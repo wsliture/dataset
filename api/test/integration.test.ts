@@ -23,18 +23,36 @@ test('PostgreSQL API workflow, history, concurrency and model failures', { skip:
   await migrate(pool)
   let failure: 'dimension' | 'timeout' | undefined
   let paused: { release: Promise<void>; entered: () => void } | undefined
+  let settingsFailure = false
+  let settingsPause: typeof paused
+  const modelCalls: { path: string | undefined; model: string; authorization: string | undefined }[] = []
   const stub = createServer(async (request, response) => {
-    assert.equal(request.url, '/v1/embeddings')
     const chunks: Buffer[] = []
     for await (const chunk of request) chunks.push(chunk)
-    const { input } = JSON.parse(Buffer.concat(chunks).toString()) as { input: string[] }
+    const { input, model } = JSON.parse(Buffer.concat(chunks).toString()) as { input: string[]; model: string }
+    modelCalls.push({ path: request.url, model, authorization: request.headers.authorization })
+    if (request.url === '/redirect') {
+      response.writeHead(307, { Location: '/vectorize' }).end()
+      return
+    }
+    if (request.url === '/vectorize') {
+      const isProbe = input.length === 1 && input[0] === '嵌入式软件测试需求'
+      if (settingsFailure && !isProbe) { response.writeHead(503).end(); return }
+      if (settingsPause && !isProbe) {
+        const pending = settingsPause
+        settingsPause = undefined
+        pending.entered()
+        await pending.release
+      }
+    } else assert.equal(request.url, '/v1/embeddings')
     const current = paused
     paused = undefined
     if (current) { current.entered(); await current.release }
     if (failure === 'timeout') await new Promise(resolve => setTimeout(resolve, 1000))
     response.setHeader('Content-Type', 'application/json')
     response.end(JSON.stringify({ data: input.map((text, index) => ({ index,
-      embedding: failure === 'dimension' ? [1] : text.includes('TEMP') ? [0, 1, 0] : text.includes('CAN') ? [1, 0, 0] : [0, 0, 1],
+      embedding: failure === 'dimension' ? [1] : request.url === '/vectorize' ? [0, 0, 0, 1] :
+        text.includes('TEMP') ? [0, 1, 0] : text.includes('CAN') ? [1, 0, 0] : [0, 0, 1],
     })).reverse() }))
   })
   stub.listen(0, '127.0.0.1')
@@ -42,19 +60,22 @@ test('PostgreSQL API workflow, history, concurrency and model failures', { skip:
   const address = stub.address()
   assert.ok(address && typeof address !== 'string')
   const realModel = process.env.DATASET_TEST_REAL_MODEL === '1'
+  const stubBase = 'http://127.0.0.1:' + address.port
   const config = configFrom({
     ...process.env, DATABASE_URL: testDatabase, DOCUMENT_ROOT: directory, UPLOAD_LIMIT: '262144',
-    ...(realModel ? {} : { EMBEDDING_BASE_URL: 'http://127.0.0.1:' + address.port + '/v1',
+    ...(realModel ? {} : { EMBEDDING_BASE_URL: stubBase + '/v1',
       EMBEDDING_DIMENSION: '3', EMBEDDING_TIMEOUT_MS: '400', EMBEDDING_MODEL: 'test-bge' }),
   })
   const app = await createApp(config, { logger: process.env.DATASET_TEST_LOG === '1', cleanup: false })
   const url = await app.listen({ port: 0 })
   const prefix = url + '/api/v1'
   const created: string[] = []
+  let savedEmbedding = false
   t.after(async () => {
     await app.close()
     stub.close()
     await once(stub, 'close')
+    if (savedEmbedding) await pool.query('DELETE FROM embedding_settings')
     for (const id of created) {
       await pool.query('DELETE FROM cases WHERE dataset_id=$1', [id])
       await pool.query('DELETE FROM datasets WHERE id=$1', [id])
@@ -225,6 +246,60 @@ test('PostgreSQL API workflow, history, concurrency and model failures', { skip:
   await json(item + '/withdraw', 'POST', { version: 1 }, 409)
   await json(item + '/withdraw', 'POST', { version: published.version })
   assert.ok((await search(sourceTexts[0])).results.some((r: { caseId: string }) => r.caseId === shared.id))
+
+  if (!realModel) {
+    const settingsPath = '/settings/embedding'
+    const baseline = await json(settingsPath, 'GET', undefined)
+    assert.equal(baseline.api_base, stubBase + '/v1/embeddings')
+    const next = { api_base: stubBase + '/vectorize', model_name: 'new-bge', api_key: 'mock-key', revision: baseline.revision }
+    const beforeInvalid = modelCalls.length
+    for (const api_base of ['/vectorize', 'http:/vectorize', 'ftp://localhost/vectorize',
+      'http://user:pass@localhost/vectorize', stubBase + '/vectorize?', stubBase + '/vectorize#']) {
+      await json(settingsPath + '/test', 'POST', { ...next, api_base }, 400)
+    }
+    assert.equal(modelCalls.length, beforeInvalid)
+    const beforeRedirect = modelCalls.length
+    await json(settingsPath + '/test', 'POST', { ...next, api_base: stubBase + '/redirect' }, 503)
+    assert.equal(modelCalls.length - beforeRedirect, 1)
+    assert.deepEqual(await json(settingsPath + '/test', 'POST', next), { dimension: 4 })
+    assert.deepEqual(modelCalls.at(-1), { path: '/vectorize', model: 'new-bge', authorization: 'Bearer mock-key' })
+
+    settingsFailure = true
+    await json(settingsPath, 'PUT', next, 503)
+    settingsFailure = false
+    assert.deepEqual(await json(settingsPath, 'GET', undefined), baseline)
+    assert.ok((await search(sourceTexts[0])).results.some((r: { caseId: string }) => r.caseId === shared.id))
+
+    let entered!: () => void
+    let release!: () => void
+    const accepted = new Promise<void>(resolve => { entered = resolve })
+    settingsPause = { entered, release: new Promise<void>(resolve => { release = resolve }) }
+    const switching = json(settingsPath, 'PUT', next, 409)
+    await accepted
+    try {
+      const row = (await json(d + '/documents/' + source.id, 'GET', undefined)).slices[0]
+      assert.equal((await updateRow(row, row.text + ' 保留 CAN-01')).status, 200)
+    } finally { release() }
+    assert.equal((await switching).code, 'EMBEDDING_INDEX_CHANGED')
+    assert.deepEqual(await json(settingsPath, 'GET', undefined), baseline)
+
+    const saved = await json(settingsPath, 'PUT', next)
+    savedEmbedding = true
+    assert.equal(saved.has_api_key, true)
+    assert.ok(!JSON.stringify(saved).includes('mock-key'))
+    await json(settingsPath + '/test', 'POST', { api_base: baseline.api_base, model_name: baseline.model_name,
+      revision: saved.revision })
+    assert.equal(modelCalls.at(-1)?.authorization, undefined)
+    assert.ok((await search('语义测试 无共同词')).results.some((r: { caseId: string }) => r.caseId === shared.id))
+    await json(settingsPath, 'PUT', next, 409)
+    const restarted = await createApp(config, { logger: false, cleanup: false })
+    try {
+      assert.deepEqual((await restarted.inject('/api/v1' + settingsPath)).json(), saved)
+    } finally { await restarted.close() }
+    const cleared = await json(settingsPath, 'PUT', { ...next, api_key: null, revision: saved.revision })
+    assert.equal(cleared.has_api_key, false)
+    assert.equal(modelCalls.at(-1)?.authorization, undefined)
+  }
 
   const historical = await json(d + '/documents', 'POST', upload('source', '历史.docx', docx(sourceTexts)), 201)
   const temp = await json(d + '/cases', 'POST', { ...input, sourceSliceIds: [historical.slices[0].sliceId] }, 201)

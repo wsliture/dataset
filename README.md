@@ -2,28 +2,32 @@
 
 ## 本地启动
 
-需要 Node.js 24、npm 和 Docker Compose。在本目录启动 PostgreSQL/pgvector 和 CPU 版 Infinity。首次运行会拉取容器并下载 BGE-M3，下载后的模型与数据库均存储在 Docker 卷中。
+在本目录启动 Docker Compose。首次运行会拉取镜像、在容器内安装锁定的依赖并下载 BGE-M3，API 会自动执行数据库迁移。
 
 ```powershell
-docker compose up -d
-docker compose logs -f embedding
+docker compose up --build -d
+docker compose logs -f api web embedding
 ```
 
-模型文件已缓存时，可在启动 Compose 前设置 `DATASET_HF_OFFLINE=1`，让 Infinity 从卷内加载固定版本。
-
-在模型已就绪后执行以下命令，启动同源 Web 和 API。应用默认监听本机，下面的数据库连接仅用于 Compose 开发环境。
+打开 [http://localhost:8081](http://localhost:8081)。Web 和 API 自动监听源码改动。修改依赖锁文件后重启对应容器，修改 Compose 环境配置后重新执行 `docker compose up -d`。
 
 ```powershell
-npm --prefix web ci
-npm --prefix web run build
-npm --prefix api ci
-$env:DATABASE_URL = 'postgres://dataset:dataset-local@127.0.0.1:55439/dataset'
-npm --prefix api run migrate
-npm --prefix api run build
-npm --prefix api start
+docker compose restart api web
 ```
 
-打开 [http://127.0.0.1:4190](http://127.0.0.1:4190)。首次进入时数据库为空，可创建数据集，再导入两侧 DOCX 并标注。开发 Web 时分别执行 `npm --prefix api run dev` 和 `npm --prefix web run dev`。Vite 默认将 `/api` 代理到本机 4190 端口，使用 `DATASET_API_ORIGIN` 可覆盖目标。
+文档保存在 `api/storage/`，数据库与模型缓存保存在原有 Docker 卷。模型文件已缓存时，可在启动前设置 `DATASET_HF_OFFLINE=1`。若已有生效的模型地址指向宿主机的 `127.0.0.1:57997`，请在「模型设置」改为 `http://embedding:7997/v1/embeddings`，测试后保存。
+
+## ARM64 离线部署
+
+在联网且支持构建 ARM64 镜像的机器上，使用 Windows PowerShell 5.1 或 PowerShell 7，从本目录执行：
+
+```powershell
+.\scripts\build-arm64-offline.ps1
+```
+
+将生成的 `release/dataset-arm64-offline.tar.gz` 传到目标机，解压并按 [离线部署说明](offline/README-OFFLINE.md) 安装或升级。离线 Web 入口为 `http://服务器IP:8090`。应用通过「模型设置」连接内网已有的 Embedding 服务。
+
+已有交付包时，用 `-OutputDirectory release/dataset-arm64-offline-8090` 指定新输出目录。已下载的 ARM64 Compose 二进制会从 `release/download-cache` 复用。
 
 ## 配置与数据
 
@@ -35,11 +39,13 @@ npm --prefix api start
 | `HOST`、`PORT` | `127.0.0.1`、`4190` |
 | `UPLOAD_LIMIT`、`DOCX_EXPANDED_LIMIT` | 25 MiB、250 MiB，按字节配置 |
 | `EMBEDDING_BASE_URL`、`EMBEDDING_MODEL` | `http://127.0.0.1:57997/v1`、`BAAI/bge-m3` |
-| `EMBEDDING_API_KEY` | 可选，留在服务端 |
+| `EMBEDDING_API_KEY` | 可选，首次保存前使用的服务端密钥 |
 | `EMBEDDING_DIMENSION`、`EMBEDDING_BATCH_SIZE`、`EMBEDDING_TIMEOUT_MS` | `1024`、`8`、`30000` |
 | `SEARCH_MIN_COSINE`、`SEARCH_CANDIDATES` | `0.55`、`100`，初始值，按代表性查询评估调整 |
 
-部署时将数据库和文档目录分别挂载到持久存储。切换模型或维度时，停止 API，使用新模型配置运行 `npm --prefix api run reindex`。重建脚本生成待替换向量，复核候选及文本版本后在一个事务内切换。失败时旧索引仍可使用，使用原模型配置恢复 API。
+在「模型设置」填写 API 容器可访问的完整 OpenAI Embeddings URL。BGE-M3 测试连接成功时应返回 1024 维。配置随 PostgreSQL 持久化，保存后可触发已发布案例的索引重建。任何能访问站点的人都能设置 API 可访问的模型地址。
+
+本地维护时，`docker compose exec api npm run reindex` 使用当前生效的配置重建索引。重建失败时旧索引仍可使用。
 
 ## 验证
 

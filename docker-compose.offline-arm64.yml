@@ -1,0 +1,52 @@
+name: dataset-offline
+
+services:
+  postgres:
+    image: dataset-postgres:arm64
+    platform: linux/arm64
+    pull_policy: never
+    environment:
+      POSTGRES_USER: dataset
+      POSTGRES_DB: dataset
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - dataset-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "dataset", "-d", "dataset"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  api:
+    image: dataset-api:arm64
+    platform: linux/arm64
+    pull_policy: never
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - documents:/data/documents
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('node:http').get('http://127.0.0.1:4190/api/v1/datasets', r => { r.resume(); if (r.statusCode !== 200) process.exitCode = 1 }).on('error', () => { process.exitCode = 1 })"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  web:
+    image: dataset-web:arm64
+    platform: linux/arm64
+    pull_policy: never
+    ports:
+      - "8090:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  dataset-db:
+  documents:

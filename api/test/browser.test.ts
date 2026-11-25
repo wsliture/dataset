@@ -22,10 +22,14 @@ test('browser to Fastify, pgvector and BGE-M3', {
   let browser: Browser | undefined
   const name = '浏览器联调 ' + Date.now()
   let datasetId: string | undefined
+  let savedEmbeddingRevision: number | undefined
   const documentIds: string[] = []
   t.after(async () => {
     await browser?.close()
     await app?.close()
+    if (savedEmbeddingRevision !== undefined) {
+      await pool.query('DELETE FROM embedding_settings WHERE revision=$1', [savedEmbeddingRevision])
+    }
     if (datasetId) {
       await pool.query('DELETE FROM cases WHERE dataset_id=$1', [datasetId])
       await pool.query('DELETE FROM datasets WHERE id=$1', [datasetId])
@@ -109,6 +113,33 @@ test('browser to Fastify, pgvector and BGE-M3', {
   await selectRow.waitFor()
   assert.equal(await selectRow.isChecked(), true)
 
+  await page.getByRole('link', { name: '模型设置' }).click()
+  const settings = await (await page.request.get(origin + '/api/v1/settings/embedding')).json()
+  assert.equal(settings.revision, 0, 'Run this test against a dedicated database with no saved model settings')
+  const endpoint = new URL(settings.api_base)
+  if (endpoint.hostname === '127.0.0.1') endpoint.hostname = 'localhost'
+  else if (endpoint.hostname === 'localhost') endpoint.hostname = '127.0.0.1'
+  const address = page.getByLabel('接口地址（api_base）')
+  assert.equal(await address.inputValue(), settings.api_base)
+  await page.getByLabel('API 密钥（api_key）').fill('discard-this-key')
+  await address.fill('')
+  assert.equal(await page.getByLabel('API 密钥（api_key）').inputValue(), '')
+  await address.fill(endpoint.href)
+  if (config.EMBEDDING_API_KEY && endpoint.href !== settings.api_base) {
+    await page.getByLabel('API 密钥（api_key）').fill(config.EMBEDDING_API_KEY)
+  }
+  await page.getByLabel('模型名称（model_name）').waitFor()
+  assert.equal(await page.getByLabel('模型名称（model_name）').inputValue(), config.EMBEDDING_MODEL)
+  await page.getByRole('button', { name: '测试连接' }).click()
+  await page.getByText('连接成功，返回 1024 维向量。').waitFor()
+  const saving = page.waitForResponse(response => response.request().method() === 'PUT' &&
+    response.url().endsWith('/api/v1/settings/embedding'))
+  await page.getByRole('button', { name: '保存', exact: true }).click()
+  const saved = await saving
+  assert.equal(saved.status(), 200, await saved.text())
+  savedEmbeddingRevision = (await saved.json()).revision
+  await page.getByText('模型设置已生效。').waitFor()
+
   const search = async (text: string) => {
     await page.getByLabel('查询内容').fill(text)
     const responsePromise = page.waitForResponse(response => response.url() === origin + '/api/v1/search')
@@ -144,6 +175,10 @@ test('browser to Fastify, pgvector and BGE-M3', {
   origin = await app.listen({ port: 0 })
   page = await browser.newPage({ acceptDownloads: true })
   page.setDefaultTimeout(30000)
+  await page.goto(origin + '/settings/embedding')
+  await page.getByLabel('模型名称（model_name）').waitFor()
+  assert.equal(await page.getByLabel('接口地址（api_base）').inputValue(), endpoint.href)
+  assert.equal((await (await page.request.get(origin + '/api/v1/settings/embedding')).json()).revision, savedEmbeddingRevision)
   await page.goto(origin + '/datasets/' + datasetId + '/cases')
   await page.getByText(title, { exact: true }).waitFor()
   await page.getByRole('link', { name: '详情', exact: true }).click()

@@ -1,13 +1,17 @@
 import { randomUUID } from 'node:crypto'
 import type { Pool, PoolClient } from 'pg'
 import { ApiError, missing, type Side } from './contract.js'
-import { transaction } from './db.js'
+import { lockEmbeddingIndex, transaction } from './db.js'
 
 export type Database = Pool | PoolClient
 export interface DatasetRow { id: string; name: string; note: string; status: 'active' | 'archived'; updatedAt: Date }
 const datasetColumns = 'id,name,note,status,updated_at AS "updatedAt"'
 
+export function dataset(db: Database, id: string): Promise<DatasetRow>
+export function dataset(db: PoolClient, id: string, mode: 'write' | 'delete'): Promise<DatasetRow>
 export async function dataset(db: Database, id: string, mode?: 'write' | 'delete') {
+  // Take the shared index lock before row locks so a model switch can recheck its slice snapshot.
+  if (mode) await lockEmbeddingIndex(db as PoolClient)
   const { rows: [row] } = await db.query<DatasetRow>(
     'SELECT ' + datasetColumns + ' FROM datasets WHERE id=$1' + (mode ? ' FOR UPDATE' : ''), [id])
   if (!row) missing()

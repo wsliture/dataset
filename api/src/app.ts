@@ -11,15 +11,20 @@ import type { Config } from './config.js'
 import { ApiError, caseInput, datasetInput, filters, missing, pagination, read, searchInput, uuid, version } from './contract.js'
 import { deleteDocument, importDocument, listDocuments, sweepFiles, updateSlice } from './documents.js'
 import { embeddingClient } from './indexing.js'
+import { activeEmbeddingConfig, embeddingSettingsInput, probeEmbedding,
+  publicEmbeddingSettings, saveEmbeddingSettings } from './embedding-settings.js'
 import { dataset, deleteDataset, listDatasets, saveDataset } from './repository.js'
 import { documentTableViews } from './tables.js'
 
 export async function createApp(config: Config, options: { logger?: boolean; cleanup?: boolean } = {}) {
   const app = Fastify({ logger: options.logger ?? true })
   const pool = new Pool({ connectionString: config.DATABASE_URL })
-  try { await pool.query('SELECT 1 FROM datasets LIMIT 0') }
+  try {
+    await pool.query('SELECT 1 FROM datasets LIMIT 0')
+    await activeEmbeddingConfig(pool, config)
+  }
   catch (error) { await pool.end(); throw error }
-  const embed = embeddingClient(config)
+  const activeEmbedding = () => activeEmbeddingConfig(pool, config)
   await mkdir(join(config.DOCUMENT_ROOT, '.staging'), { recursive: true })
   await app.register(multipart, { limits: { fileSize: config.UPLOAD_LIMIT, files: 1, fields: 1, parts: 3 } })
 
@@ -61,6 +66,22 @@ export async function createApp(config: Config, options: { logger?: boolean; cle
     const sliceParams = z.object({ datasetId: uuid, documentId: uuid, sliceId: uuid })
     const versionInput = z.object({ version })
 
+    api.get('/settings/embedding', async (_request, reply) => {
+      reply.header('Cache-Control', 'no-store')
+      return publicEmbeddingSettings(await activeEmbedding())
+    })
+    api.post('/settings/embedding/test', async request => {
+      const input = read(embeddingSettingsInput, request.body)
+      const candidate = await probeEmbedding(await activeEmbedding(), input)
+      return { dimension: candidate.EMBEDDING_DIMENSION }
+    })
+    api.put('/settings/embedding', async request => {
+      const input = read(embeddingSettingsInput, request.body)
+      const active = await activeEmbedding()
+      const candidate = await probeEmbedding(active, input)
+      return publicEmbeddingSettings(await saveEmbeddingSettings(pool, active, candidate))
+    })
+
     api.get('/datasets', () => listDatasets(pool))
     api.post('/datasets', async (request, reply) => reply.code(201).send(await saveDataset(pool, read(datasetInput, request.body))))
     api.get(d, request => dataset(pool, read(datasetParams, request.params).datasetId))
@@ -90,10 +111,11 @@ export async function createApp(config: Config, options: { logger?: boolean; cle
       if (timer) cleanup()
       return reply.code(204).send()
     })
-    api.patch(d + '/documents/:documentId/slices/:sliceId', request => {
+    api.patch(d + '/documents/:documentId/slices/:sliceId', async request => {
       const { datasetId, documentId, sliceId } = read(sliceParams, request.params)
       const input = read(z.object({ text: z.string().trim().min(1), version }), request.body)
-      return updateSlice(pool, config, embed, datasetId, documentId, sliceId, input.text, input.version)
+      const active = await activeEmbedding()
+      return updateSlice(pool, active, embeddingClient(active), datasetId, documentId, sliceId, input.text, input.version)
     })
     api.get(d + '/cases', request => listCases(pool, read(datasetParams, request.params).datasetId,
       read(filters, request.query), read(pagination, request.query)))
@@ -116,14 +138,24 @@ export async function createApp(config: Config, options: { logger?: boolean; cle
       return saveCase(pool, datasetId, fields, { id: caseId, version: suppliedVersion })
     })
     for (const action of ['publish', 'withdraw']) {
-      api.post(d + '/cases/:caseId/' + action, request => {
+      api.post(d + '/cases/:caseId/' + action, async request => {
         const { datasetId, caseId } = read(caseParams, request.params)
-        return changeCaseStatus(pool, config, embed, datasetId, caseId, read(versionInput, request.body).version, action === 'publish')
+        const active = await activeEmbedding()
+        return changeCaseStatus(pool, active, embeddingClient(active), datasetId, caseId,
+          read(versionInput, request.body).version, action === 'publish')
       })
     }
-    api.post('/search', request => {
+    api.post('/search', async request => {
       const { query, limit } = read(searchInput, request.body)
-      return searchCases(pool, config, embed, query, limit)
+      const search = async () => {
+        const active = await activeEmbedding()
+        return searchCases(pool, active, embeddingClient(active), query, limit)
+      }
+      try { return await search() }
+      catch (error) {
+        if (error instanceof ApiError && error.code === 'EMBEDDING_SETTINGS_CHANGED') return search()
+        throw error
+      }
     })
   }, { prefix: '/api/v1' })
 

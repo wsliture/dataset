@@ -52,7 +52,16 @@ export interface SearchResult {
   datasetId: string; datasetName: string; caseId: string; caseTitle: string
   matchedSourceSlices: Excerpt[]; testRequirementSlices: Excerpt[]
 }
+export interface EmbeddingSettingsInput {
+  api_base: string; model_name: string; api_key?: string | null; revision: number
+}
+export interface EmbeddingSettings {
+  api_base: string; model_name: string; has_api_key: boolean; revision: number
+}
 export interface DatasetClient {
+  getEmbeddingSettings(): Promise<EmbeddingSettings>
+  testEmbeddingSettings(input: EmbeddingSettingsInput): Promise<{ dimension: number }>
+  saveEmbeddingSettings(input: EmbeddingSettingsInput): Promise<EmbeddingSettings>
   listTables(id: string, documentId: string): Promise<TableView[]>
   listDatasets(): Promise<DatasetSummary[]>
   getDataset(id: string): Promise<Dataset>

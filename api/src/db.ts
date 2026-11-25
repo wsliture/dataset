@@ -1,5 +1,19 @@
 import type { Pool, PoolClient } from 'pg'
 import { readdir, readFile } from 'node:fs/promises'
+import { ApiError } from './contract.js'
+
+export async function lockEmbeddingIndex(db: PoolClient, exclusive = false) {
+  const lock = exclusive ? 'pg_advisory_xact_lock' : 'pg_advisory_xact_lock_shared'
+  await db.query(`SELECT ${lock}(hashtext('matrix-dataset-embedding-index'))`)
+}
+
+export async function checkEmbeddingRevision(db: PoolClient, revision: number | undefined) {
+  if (revision === undefined) return
+  const { rows: [settings] } = await db.query<{ revision: number }>('SELECT revision FROM embedding_settings')
+  if ((settings?.revision ?? 0) !== revision) {
+    throw new ApiError(409, 'EMBEDDING_SETTINGS_CHANGED', '模型设置已变更，请刷新后重试。')
+  }
+}
 
 export async function transaction<T>(
   pool: Pool, run: (client: PoolClient) => Promise<T>, readOnly = false,

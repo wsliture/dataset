@@ -19,7 +19,8 @@ const schema = z.object({
   SEARCH_MIN_COSINE: z.coerce.number().min(-1).max(1).default(0.55),
   SEARCH_CANDIDATES: z.coerce.number().int().positive().default(100),
 })
-export type Config = z.infer<typeof schema>
+export type Config = z.infer<typeof schema> & { embeddingEndpoint?: string; embeddingRevision?: number }
+export const legacyEmbeddingEndpoint = (config: Config) => config.EMBEDDING_BASE_URL.replace(/\/+$/, '') + '/embeddings'
 export function configFrom(env = process.env): Config {
   const config = schema.parse(env)
   return { ...config, DOCUMENT_ROOT: resolve(config.DOCUMENT_ROOT), WEB_ROOT: resolve(config.WEB_ROOT) }

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { Pool, PoolClient } from 'pg'
 import type { Config } from './config.js'
 import { ApiError, conflict, invalid, missing, normalize, stateConflict, type CaseInput, type Filters } from './contract.js'
-import { transaction } from './db.js'
+import { checkEmbeddingRevision, transaction } from './db.js'
 import { enrichCaseTables } from './tables.js'
 import { vectorLiteral, tokens } from './indexing.js'
 import { dataset, excerpt, slicesByIds, touch, type Database, type Excerpt, type SliceRow } from './repository.js'
@@ -114,6 +114,7 @@ export async function changeCaseStatus(pool: Pool, config: Config, embed: Embed,
     const row = await record(db, datasetId, id, true)
     if (row.version !== version) conflict()
     if (publish === (row.status === 'published')) stateConflict()
+    if (publish) await checkEmbeddingRevision(db, config.embeddingRevision)
     const slices = await slicesByIds(db, ids(row.input), true, model, dimension)
     if (publish) {
       validateReferences(row.input, datasetId, slices)
@@ -172,6 +173,7 @@ export async function searchCases(pool: Pool, config: Config, embed: Embed, quer
   const [vector] = mode === 'keyword' ? [] : await embed([query])
   const { words, identifiers } = tokens(query)
   return transaction(pool, async db => {
+    await checkEmbeddingRevision(db, config.embeddingRevision)
     const { rows } = await db.query<{
       caseId: string; datasetId: string; datasetName: string; caseTitle: string; matchedIds: string[]; requirementIds: string[]
     }>(`

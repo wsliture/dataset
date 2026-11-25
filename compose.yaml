@@ -1,4 +1,38 @@
 services:
+  api:
+    image: node:24-bookworm-slim
+    working_dir: /app
+    init: true
+    command: ["sh", "/docker/dev-start.sh", "api"]
+    environment:
+      HOST: 0.0.0.0
+      DATABASE_URL: postgres://dataset:dataset-local@postgres:5432/dataset
+      DOCUMENT_ROOT: /app/storage
+      EMBEDDING_BASE_URL: http://embedding:7997/v1
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./api:/app
+      - ./docker/dev-start.sh:/docker/dev-start.sh:ro
+      - api-deps:/app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+  web:
+    image: node:24-bookworm-slim
+    working_dir: /app
+    init: true
+    command: ["sh", "/docker/dev-start.sh", "web"]
+    environment:
+      DATASET_API_ORIGIN: http://api:4190
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./web:/app
+      - ./docker/dev-start.sh:/docker/dev-start.sh:ro
+      - web-deps:/app/node_modules
+    ports:
+      - "127.0.0.1:8081:5173"
+    depends_on:
+      - api
   postgres:
     image: pgvector/pgvector:pg17
     environment:
@@ -9,6 +43,11 @@ services:
       - "127.0.0.1:55439:5432"
     volumes:
       - dataset-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "dataset", "-d", "dataset"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
   embedding:
     image: michaelf34/infinity:0.0.79-cpu
     command: ["v2", "--model-id", "BAAI/bge-m3", "--revision", "5617a9f61b028005a4858fdac845db406aefb181", "--engine", "torch", "--device", "cpu", "--url-prefix", "/v1", "--port", "7997", "--no-trust-remote-code", "--no-model-warmup"]
@@ -24,3 +63,5 @@ services:
 volumes:
   dataset-db:
   embedding-cache:
+  api-deps:
+  web-deps:

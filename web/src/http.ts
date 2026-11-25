@@ -31,6 +31,9 @@ export function createHttpClient(base = '/api/v1', transport = globalThis.fetch)
   const cases = (id: string) => dataset(id) + '/cases'
   const record = (id: string, item: string) => cases(id) + '/' + encodeURIComponent(item)
   return {
+    getEmbeddingSettings: () => request('/settings/embedding'),
+    testEmbeddingSettings: input => request('/settings/embedding/test', 'POST', input),
+    saveEmbeddingSettings: input => request('/settings/embedding', 'PUT', input),
     listTables: (id, doc) => request<Awaited<ReturnType<DatasetClient['listTables']>>>(document(id, doc) + '/tables'),
     listDatasets: () => request<DatasetSummary[]>('/datasets'),
     getDataset: id => request<Dataset>(dataset(id)),
