@@ -28,7 +28,7 @@ function Layout() {
       <div className="topbar-inner">
         <Link to="/datasets" className="brand"><span className="brand-mark"><Layers3 size={21} /></span><span>历史案例标注平台</span></Link>
         <nav aria-label="主导航">
-          <NavLink to={matchPath('/search', pathname) ? lastDatasetPage : '/datasets'}><Database size={16} />历史数据集</NavLink>
+          <NavLink to={datasetPage ? '/datasets' : lastDatasetPage}><Database size={16} />历史数据集</NavLink>
           <NavLink to="/search"><Search size={17} />案例检索</NavLink>
           <NavLink to="/settings/embedding"><Settings size={17} />模型设置</NavLink>
         </nav>
