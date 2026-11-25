@@ -1,5 +1,5 @@
 
-import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { X, FileText, Layers3 } from 'lucide-react'
 import { messageOf, statusNames } from './client'
@@ -36,16 +36,16 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
 
 export function Modal({ title, children, close, wide = false }: { title: string; children: ReactNode; close: () => void; wide?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null)
-  const titleId = useRef(crypto.randomUUID())
+  const titleId = useId()
   useEffect(() => {
     const dialog = ref.current!
     const previous = document.activeElement as HTMLElement | null
     dialog.showModal()
     return () => { dialog.close(); previous?.focus() }
   }, [])
-  return <dialog ref={ref} className={wide ? 'dialog wide' : 'dialog'} aria-labelledby={titleId.current}
+  return <dialog ref={ref} className={wide ? 'dialog wide' : 'dialog'} aria-labelledby={titleId}
     onCancel={event => { event.preventDefault(); close() }}>
-    <header><h2 id={titleId.current}>{title}</h2><button className="icon-button" aria-label="关闭" onClick={close}><X size={19} /></button></header>
+    <header><h2 id={titleId}>{title}</h2><button className="icon-button" aria-label="关闭" onClick={close}><X size={19} /></button></header>
     <div className="dialog-body">{children}</div>
   </dialog>
 }

@@ -4,6 +4,7 @@ import { FileText, Upload, Trash2, Pencil } from 'lucide-react'
 import { messageOf, sideNames } from './client'
 import type { Doc, Side, Slice } from './client'
 import { useDataset } from './datasets'
+import { createClientId } from './client-id'
 import { OriginalTable, tableIndex } from './original-table'
 import { Confirm, dateText, Empty, ErrorText, Modal, Provenance, ResourceState, useClient, useResource } from './ui'
 
@@ -78,7 +79,7 @@ export function DocumentsPage() {
             <input hidden ref={picker} type="file" accept=".docx" multiple aria-label={'导入' + sideNames[side]}
               onChange={event => {
                 const selected: UploadItem[] = Array.from(event.target.files ?? []).map(file => ({
-                  id: crypto.randomUUID(), file, side, phase: 'uploading',
+                  id: createClientId(), file, side, phase: 'uploading',
                 }))
                 event.target.value = ''
                 setUploads(previous => [...previous, ...selected])

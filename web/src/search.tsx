@@ -5,6 +5,7 @@ import { ArrowUp, MessageSquareText } from 'lucide-react'
 import { CaseDetailDialog } from './case-detail'
 import type { SearchResult } from './client'
 import { messageOf, stripResults } from './client'
+import { createClientId } from './client-id'
 import { TableExcerpts, useTableViews } from './original-table'
 import { Empty, ErrorText, useClient } from './ui'
 
@@ -30,7 +31,7 @@ function useSearchSession() {
     if (pending.current) return
     const query = raw.trim()
     if (!query) { setError('请输入源需求、设计描述或接口标识。'); return }
-    const turn = { id: retryId ?? crypto.randomUUID(), query }
+    const turn = { id: retryId ?? createClientId(), query }
     const update = (value: Turn) => setTurns(previous => previous.map(item => item.id === value.id ? value : item))
     setError('')
     pending.current = true
